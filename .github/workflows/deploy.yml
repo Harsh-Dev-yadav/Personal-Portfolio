@@ -1,0 +1,76 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Create directory on EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
+            sudo mkdir -p /opt/lampp/htdocs/resume-site
+            sudo chown -R ubuntu:ubuntu /opt/lampp/htdocs/resume-site
+          EOF
+      
+      - name: Deploy files
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='*.md' \
+            --exclude='.gitignore' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/opt/lampp/htdocs/resume-site/
+      
+      - name: Set permissions and restart Apache
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd /opt/lampp/htdocs/resume-site
+            
+            sudo tee .htaccess > /dev/null << 'HTACCESS'
+          DirectoryIndex index.html index.php
+          Options -Indexes
+          HTACCESS
+            
+            sudo chown -R daemon:daemon /opt/lampp/htdocs/resume-site
+            sudo chmod -R 755 /opt/lampp/htdocs/resume-site
+            sudo chmod 644 *.html *.css *.js *.php .htaccess 2>/dev/null || true
+            
+            sudo /opt/lampp/lampp restart
+            
+            echo "Deployment completed successfully!"
+          EOF
+      
+      - name: Verify deployment
+        run: |
+          sleep 3
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/resume-site/)
+          echo "Site HTTP Status: $HTTP_CODE"
+          if [ $HTTP_CODE -eq 200 ]; then
+            echo "Site is accessible and working!"
+          else
+            echo "Warning: Site returned HTTP status $HTTP_CODE"
+          fi
+      
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
