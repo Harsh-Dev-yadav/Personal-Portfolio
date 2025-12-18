@@ -1,11 +1,10 @@
-name: Deploy to EC2
+name: Deploy to AWS EC2
 
 on:
   push:
     branches:
       - main
-      - master
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
   deploy:
@@ -16,65 +15,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Setup SSH
+      - name: Create config.php from template
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          cp config.example.php config.php
+          sed -i "s/your_db_user/${{ secrets.DB_USER }}/g" config.php
+          sed -i "s/your_db_password/${{ secrets.DB_PASS }}/g" config.php
+          sed -i "s/your_db_name/${{ secrets.DB_NAME }}/g" config.php
+          sed -i "s/DEBUG_MODE', true/DEBUG_MODE', false/g" config.php
       
-      - name: Create directory on EC2
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
-            sudo mkdir -p /opt/lampp/htdocs/resume-site
-            sudo chown -R ubuntu:ubuntu /opt/lampp/htdocs/resume-site
-          EOF
+      - name: Deploy to EC2 via SSH
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.EC2_HOST }}
+          REMOTE_USER: ${{ secrets.EC2_USERNAME }}
+          SOURCE: "./"
+          TARGET: "/opt/lampp/htdocs/resume-site"
+          EXCLUDE: ".git, .github, .gitignore, README.md, config.example.php"
       
-      - name: Deploy files
-        run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='*.md' \
-            --exclude='.gitignore' \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-            ./ ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/opt/lampp/htdocs/resume-site/
-      
-      - name: Set permissions and restart Apache
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
-            cd /opt/lampp/htdocs/resume-site
-            
-            # Create .htaccess
-            sudo tee .htaccess > /dev/null << 'HTACCESS'
-          DirectoryIndex index.html index.php
-          Options -Indexes
-          HTACCESS
-            
-            # Set permissions
-            sudo chown -R daemon:daemon /opt/lampp/htdocs/resume-site
-            sudo chmod -R 755 /opt/lampp/htdocs/resume-site
-            sudo chmod 644 *.html *.css *.js *.php .htaccess 2>/dev/null || true
-            
-            # Restart Apache
+      - name: Restart Apache
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
             sudo /opt/lampp/lampp restart
-            
-            echo "✅ Deployment completed!"
-          EOF
+            echo "Deployment completed successfully!"
       
-      - name: Verify deployment
+      - name: Deployment Notification
+        if: success()
         run: |
-          sleep 3
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/resume-site/)
-          echo "Site HTTP Status: $HTTP_CODE"
-          if [ $HTTP_CODE -eq 200 ]; then
-            echo "✅ Site is accessible!"
-          else
-            echo "⚠️ Site may have issues. Check Apache logs."
-          fi
+          echo "✅ Deployment to EC2 completed successfully!"
+          echo "🌐 Site URL: http://${{ secrets.EC2_HOST }}/resume-site"
       
-      - name: Cleanup
-        if: always()
-        run: rm -f ~/.ssh/deploy_key
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Check the logs above for details."
