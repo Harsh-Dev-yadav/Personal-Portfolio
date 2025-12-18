@@ -72,7 +72,7 @@ jobs:
       
       - name: Create directory on EC2
         run: |
-          ssh -i ~/.ssh/github-deploy-key -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
             sudo mkdir -p /opt/lampp/htdocs/resume-site
             sudo chown -R ubuntu:ubuntu /opt/lampp/htdocs/resume-site
@@ -121,5 +121,4 @@ jobs:
       
       - name: Cleanup
         if: always()
-
         run: rm -f ~/.ssh/deploy_key
