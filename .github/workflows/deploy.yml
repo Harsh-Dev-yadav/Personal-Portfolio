@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -46,18 +47,21 @@ jobs:
             ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
             cd /opt/lampp/htdocs/resume-site
             
+            # Create .htaccess
             sudo tee .htaccess > /dev/null << 'HTACCESS'
           DirectoryIndex index.html index.php
           Options -Indexes
           HTACCESS
             
+            # Set permissions
             sudo chown -R daemon:daemon /opt/lampp/htdocs/resume-site
             sudo chmod -R 755 /opt/lampp/htdocs/resume-site
             sudo chmod 644 *.html *.css *.js *.php .htaccess 2>/dev/null || true
             
+            # Restart Apache
             sudo /opt/lampp/lampp restart
             
-            echo "Deployment completed successfully!"
+            echo "✅ Deployment completed!"
           EOF
       
       - name: Verify deployment
@@ -66,9 +70,9 @@ jobs:
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/resume-site/)
           echo "Site HTTP Status: $HTTP_CODE"
           if [ $HTTP_CODE -eq 200 ]; then
-            echo "Site is accessible and working!"
+            echo "✅ Site is accessible!"
           else
-            echo "Warning: Site returned HTTP status $HTTP_CODE"
+            echo "⚠️ Site may have issues. Check Apache logs."
           fi
       
       - name: Cleanup
