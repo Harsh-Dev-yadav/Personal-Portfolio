@@ -17,7 +17,7 @@ jobs:
       
       - name: Create config.php from template
         run: |
-          cp config.example.php config.php
+          cp config.php config.php
           sed -i "s/your_db_user/${{ secrets.DB_USER }}/g" config.php
           sed -i "s/your_db_password/${{ secrets.DB_PASS }}/g" config.php
           sed -i "s/your_db_name/${{ secrets.DB_NAME }}/g" config.php
